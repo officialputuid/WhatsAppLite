@@ -1,0 +1,33 @@
+name: Windows installer
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo test --all-targets
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo build --release
+      - run: cargo install tauri-cli --version "^2" --locked
+      - run: cargo tauri build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whatsapp-lite-windows
+          path: |
+            target/release/bundle/msi/*.msi
+            target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
