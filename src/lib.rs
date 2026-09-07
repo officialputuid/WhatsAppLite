@@ -15,6 +15,9 @@ pub enum CloseBehavior {
 pub struct Settings {
     pub close_behavior: CloseBehavior,
     pub autostart: bool,
+    pub allow_notifications: bool,
+    pub allow_camera: bool,
+    pub allow_microphone: bool,
 }
 
 impl Default for Settings {
@@ -22,6 +25,9 @@ impl Default for Settings {
         Self {
             close_behavior: CloseBehavior::Tray,
             autostart: false,
+            allow_notifications: true,
+            allow_camera: false,
+            allow_microphone: false,
         }
     }
 }
@@ -79,6 +85,9 @@ mod tests {
         let settings = Settings::default();
         assert_eq!(settings.close_behavior, CloseBehavior::Tray);
         assert!(!settings.autostart);
+        assert!(settings.allow_notifications);
+        assert!(!settings.allow_camera);
+        assert!(!settings.allow_microphone);
     }
 
     #[test]
@@ -88,6 +97,9 @@ mod tests {
         let settings = Settings {
             close_behavior: CloseBehavior::Exit,
             autostart: true,
+            allow_notifications: false,
+            allow_camera: true,
+            allow_microphone: true,
         };
         save_settings(&path, &settings).unwrap();
         assert_eq!(load_settings(&path), settings);
