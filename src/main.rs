@@ -9,7 +9,7 @@ fn main() {
 mod windows_app {
     use std::{path::PathBuf, sync::Mutex};
     use tauri::{
-        menu::{CheckMenuItemBuilder, MenuBuilder},
+        menu::{CheckMenuItemBuilder, MenuBuilder, SubmenuBuilder},
         tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
         webview::{NewWindowResponse, WebviewWindowBuilder},
         AppHandle, Manager, WebviewUrl, WindowEvent,
@@ -17,7 +17,9 @@ mod windows_app {
     use tauri_plugin_autostart::ManagerExt;
     use webview2_com::{
         Microsoft::Web::WebView2::Win32::{
+            COREWEBVIEW2_PERMISSION_KIND_CAMERA, COREWEBVIEW2_PERMISSION_KIND_MICROPHONE,
             COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS, COREWEBVIEW2_PERMISSION_STATE_ALLOW,
+            COREWEBVIEW2_PERMISSION_STATE_DENY,
         },
         PermissionRequestedEventHandler,
     };
@@ -31,6 +33,9 @@ mod windows_app {
     const RELOAD: &str = "reload";
     const CLOSE_TO_TRAY: &str = "close_to_tray";
     const AUTOSTART: &str = "autostart";
+    const NOTIFICATIONS: &str = "notifications";
+    const CAMERA: &str = "camera";
+    const MICROPHONE: &str = "microphone";
     const QUIT: &str = "quit";
 
     struct State {
@@ -82,10 +87,25 @@ mod windows_app {
                 let autostart = CheckMenuItemBuilder::with_id(AUTOSTART, "Start with Windows")
                     .checked(settings.autostart)
                     .build(app)?;
+                let notifications = CheckMenuItemBuilder::with_id(NOTIFICATIONS, "Notifications")
+                    .checked(settings.allow_notifications)
+                    .build(app)?;
+                let camera = CheckMenuItemBuilder::with_id(CAMERA, "Camera")
+                    .checked(settings.allow_camera)
+                    .build(app)?;
+                let microphone = CheckMenuItemBuilder::with_id(MICROPHONE, "Microphone")
+                    .checked(settings.allow_microphone)
+                    .build(app)?;
+                let permissions = SubmenuBuilder::new(app, "Settings")
+                    .item(&notifications)
+                    .item(&camera)
+                    .item(&microphone)
+                    .build()?;
                 let menu = MenuBuilder::new(app)
                     .text(OPEN, "Open WhatsApp")
                     .text(RELOAD, "Reload")
                     .separator()
+                    .item(&permissions)
                     .item(&close_to_tray)
                     .item(&autostart)
                     .separator()
@@ -127,6 +147,15 @@ mod windows_app {
                                 update_settings(app, |settings| settings.autostart = !enabled);
                             }
                         }
+                        NOTIFICATIONS => update_settings(app, |settings| {
+                            settings.allow_notifications = !settings.allow_notifications;
+                        }),
+                        CAMERA => update_settings(app, |settings| {
+                            settings.allow_camera = !settings.allow_camera;
+                        }),
+                        MICROPHONE => update_settings(app, |settings| {
+                            settings.allow_microphone = !settings.allow_microphone;
+                        }),
                         QUIT => app.exit(0),
                         _ => {}
                     })
@@ -192,25 +221,45 @@ mod windows_app {
                 })
                 .build()?;
 
-                window.with_webview(|webview| unsafe {
+                let permission_app = app.handle().clone();
+                window.with_webview(move |webview| unsafe {
                     let Ok(core) = webview.controller().CoreWebView2() else {
-                        eprintln!("failed to access WebView2 notification permissions");
+                        eprintln!("failed to access WebView2 permissions");
                         return;
                     };
-                    let handler = PermissionRequestedEventHandler::create(Box::new(|_, args| {
-                        let Some(args) = args else {
-                            return Ok(());
-                        };
-                        let mut kind = Default::default();
-                        args.PermissionKind(&mut kind)?;
-                        if kind == COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS {
-                            args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW)?;
-                        }
-                        Ok(())
-                    }));
+                    let handler =
+                        PermissionRequestedEventHandler::create(Box::new(move |_, args| {
+                            let Some(args) = args else {
+                                return Ok(());
+                            };
+                            let mut kind = Default::default();
+                            args.PermissionKind(&mut kind)?;
+                            let settings = permission_app.state::<State>();
+                            let Ok(settings) = settings.settings.lock() else {
+                                return Ok(());
+                            };
+                            let allowed = match kind {
+                                COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS => {
+                                    Some(settings.allow_notifications)
+                                }
+                                COREWEBVIEW2_PERMISSION_KIND_CAMERA => Some(settings.allow_camera),
+                                COREWEBVIEW2_PERMISSION_KIND_MICROPHONE => {
+                                    Some(settings.allow_microphone)
+                                }
+                                _ => None,
+                            };
+                            if let Some(allowed) = allowed {
+                                args.SetState(if allowed {
+                                    COREWEBVIEW2_PERMISSION_STATE_ALLOW
+                                } else {
+                                    COREWEBVIEW2_PERMISSION_STATE_DENY
+                                })?;
+                            }
+                            Ok(())
+                        }));
                     let mut token = 0;
                     if let Err(error) = core.add_PermissionRequested(&handler, &mut token) {
-                        eprintln!("failed to allow WebView2 notifications: {error}");
+                        eprintln!("failed to configure WebView2 permissions: {error}");
                     }
                 })?;
 
