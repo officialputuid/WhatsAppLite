@@ -15,6 +15,12 @@ mod windows_app {
         AppHandle, Manager, WebviewUrl, WindowEvent,
     };
     use tauri_plugin_autostart::ManagerExt;
+    use webview2_com::{
+        Microsoft::Web::WebView2::Win32::{
+            COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS, COREWEBVIEW2_PERMISSION_STATE_ALLOW,
+        },
+        PermissionRequestedEventHandler,
+    };
     use whatsapp_lite::{
         classify_navigation, load_settings, save_settings, CloseBehavior, NavigationAction,
         Settings,
@@ -185,6 +191,28 @@ mod windows_app {
                     }
                 })
                 .build()?;
+
+                window.with_webview(|webview| unsafe {
+                    let Ok(core) = webview.controller().CoreWebView2() else {
+                        eprintln!("failed to access WebView2 notification permissions");
+                        return;
+                    };
+                    let handler = PermissionRequestedEventHandler::create(Box::new(|_, args| {
+                        let Some(args) = args else {
+                            return Ok(());
+                        };
+                        let mut kind = Default::default();
+                        args.PermissionKind(&mut kind)?;
+                        if kind == COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS {
+                            args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW)?;
+                        }
+                        Ok(())
+                    }));
+                    let mut token = 0;
+                    if let Err(error) = core.add_PermissionRequested(&handler, &mut token) {
+                        eprintln!("failed to allow WebView2 notifications: {error}");
+                    }
+                })?;
 
                 let close_app = app.handle().clone();
                 window.on_window_event(move |event| {
