@@ -112,7 +112,7 @@ target/release/bundle/nsis/
 target/release/bundle/msi/
 ```
 
-GitHub Actions runs formatting, tests, Clippy, and Windows packaging for pushes and pull requests. A version tag such as `v0.1.2` publishes a GitHub Release when it matches the package version in `Cargo.toml`.
+GitHub Actions runs only when started manually. Choose `build` to create MSI and NSIS workflow artifacts, or `release` to publish version `vMAJOR.MINOR.PATCH` from `Cargo.toml` as a GitHub Release.
 
 ## Project structure
 
