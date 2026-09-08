@@ -76,6 +76,14 @@ pub fn classify_navigation(raw: &str) -> NavigationAction {
     }
 }
 
+pub fn permission_origin_allowed(raw: &str) -> bool {
+    Url::parse(raw).is_ok_and(|url| {
+        url.scheme() == "https"
+            && url.host_str() == Some("web.whatsapp.com")
+            && url.port().is_none()
+    })
+}
+
 pub fn release_version_is_newer(release: &str, current: &str) -> bool {
     fn parse(version: &str) -> Option<Vec<u64>> {
         version
@@ -187,5 +195,16 @@ mod tests {
             NavigationAction::Blocked
         );
         assert_eq!(classify_navigation("not a url"), NavigationAction::Blocked);
+    }
+
+    #[test]
+    fn restricts_permission_requests_to_whatsapp_web_origin() {
+        assert!(permission_origin_allowed("https://web.whatsapp.com/"));
+        assert!(!permission_origin_allowed("https://static.whatsapp.net/"));
+        assert!(!permission_origin_allowed(
+            "https://web.whatsapp.com.evil.test/"
+        ));
+        assert!(!permission_origin_allowed("http://web.whatsapp.com/"));
+        assert!(!permission_origin_allowed("https://web.whatsapp.com:8443/"));
     }
 }
