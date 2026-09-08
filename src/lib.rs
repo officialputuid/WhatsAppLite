@@ -85,13 +85,15 @@ pub fn permission_origin_allowed(raw: &str) -> bool {
 }
 
 pub fn release_version_is_newer(release: &str, current: &str) -> bool {
-    fn parse(version: &str) -> Option<Vec<u64>> {
-        version
-            .trim_start_matches('v')
-            .split('.')
-            .map(str::parse)
-            .collect::<Result<Vec<_>, _>>()
-            .ok()
+    fn parse(version: &str) -> Option<[u64; 3]> {
+        let version = version.strip_prefix('v').unwrap_or(version);
+        let mut parts = version.split('.');
+        let parsed = [
+            parts.next()?.parse().ok()?,
+            parts.next()?.parse().ok()?,
+            parts.next()?.parse().ok()?,
+        ];
+        parts.next().is_none().then_some(parsed)
     }
 
     matches!((parse(release), parse(current)), (Some(release), Some(current)) if release > current)
@@ -154,6 +156,10 @@ mod tests {
         assert!(!release_version_is_newer("v0.1.0", "0.1.0"));
         assert!(!release_version_is_newer("v0.0.9", "0.1.0"));
         assert!(!release_version_is_newer("nightly", "0.1.0"));
+        assert!(!release_version_is_newer("v1.0", "0.1.0"));
+        assert!(!release_version_is_newer("v1.0.0.1", "0.1.0"));
+        assert!(!release_version_is_newer("v1.0.0-beta", "0.1.0"));
+        assert!(!release_version_is_newer("vv1.0.0", "0.1.0"));
     }
 
     #[test]
