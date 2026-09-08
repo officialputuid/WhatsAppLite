@@ -89,6 +89,17 @@ pub fn release_version_is_newer(release: &str, current: &str) -> bool {
     matches!((parse(release), parse(current)), (Some(release), Some(current)) if release > current)
 }
 
+pub fn update_error_message(status: Option<u16>) -> &'static str {
+    match status {
+        Some(404) => {
+            "Release not found. The repository may be private or have no published release."
+        }
+        Some(403 | 429) => "GitHub temporarily rejected the update check. Please try again later.",
+        Some(_) => "GitHub could not complete the update check. Please try again later.",
+        None => "Could not reach GitHub. Check your internet connection and try again.",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,6 +146,22 @@ mod tests {
         assert!(!release_version_is_newer("v0.1.0", "0.1.0"));
         assert!(!release_version_is_newer("v0.0.9", "0.1.0"));
         assert!(!release_version_is_newer("nightly", "0.1.0"));
+    }
+
+    #[test]
+    fn explains_update_check_failures() {
+        assert_eq!(
+            update_error_message(Some(404)),
+            "Release not found. The repository may be private or have no published release."
+        );
+        assert_eq!(
+            update_error_message(Some(403)),
+            "GitHub temporarily rejected the update check. Please try again later."
+        );
+        assert_eq!(
+            update_error_message(None),
+            "Could not reach GitHub. Check your internet connection and try again."
+        );
     }
 
     #[test]

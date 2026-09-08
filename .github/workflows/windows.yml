@@ -14,7 +14,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -22,29 +22,27 @@ jobs:
       - run: cargo fmt --check
       - run: cargo test --all-targets
       - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo build --release
-      - run: cargo install tauri-cli --version "^2" --locked
-      - run: cargo tauri build
-      - uses: actions/upload-artifact@v4
-        with:
-          name: whatsapp-lite-windows
-          path: |
-            target/release/bundle/msi/*.msi
-            target/release/bundle/nsis/*-setup.exe
-          if-no-files-found: error
       - name: Verify release tag matches app version
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
-          $version = (Get-Content tauri.conf.json | ConvertFrom-Json).version
+          $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $version = ($metadata.packages | Where-Object name -eq "whatsapp-lite").version
           if ("v$version" -ne "${{ github.ref_name }}") {
             throw "Tag ${{ github.ref_name }} does not match app version v$version"
           }
+      - name: Build workflow artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: tauri-apps/tauri-action@v1
+        with:
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: whatsapp-lite-windows
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          generate_release_notes: true
-          files: |
-            target/release/bundle/msi/*.msi
-            target/release/bundle/nsis/*-setup.exe
+          tagName: ${{ github.ref_name }}
+          releaseName: WhatsApp Lite v__VERSION__
+          generateReleaseNotes: true
