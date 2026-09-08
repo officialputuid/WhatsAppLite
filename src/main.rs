@@ -26,8 +26,8 @@ mod windows_app {
         PermissionRequestedEventHandler, SetPermissionStateCompletedHandler,
     };
     use whatsapp_lite::{
-        classify_navigation, load_settings, release_version_is_newer, save_settings, CloseBehavior,
-        NavigationAction, Settings,
+        classify_navigation, load_settings, release_version_is_newer, save_settings,
+        update_error_message, CloseBehavior, NavigationAction, Settings,
     };
     use windows_core::{Interface, HSTRING, PCWSTR};
 
@@ -189,8 +189,12 @@ mod windows_app {
                         .show(|_| {});
                 }
                 Err(error) => {
+                    let status = match error {
+                        ureq::Error::StatusCode(status) => Some(status),
+                        _ => None,
+                    };
                     app.dialog()
-                        .message(format!("Update check failed.\n{error}"))
+                        .message(update_error_message(status))
                         .title("WhatsApp Lite Update")
                         .kind(MessageDialogKind::Error)
                         .show(|_| {});
