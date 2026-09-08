@@ -17,16 +17,18 @@ mod windows_app {
     use tauri_plugin_autostart::ManagerExt;
     use webview2_com::{
         Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2, ICoreWebView2Profile4, ICoreWebView2_13, COREWEBVIEW2_PERMISSION_KIND,
             COREWEBVIEW2_PERMISSION_KIND_CAMERA, COREWEBVIEW2_PERMISSION_KIND_MICROPHONE,
-            COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS, COREWEBVIEW2_PERMISSION_STATE_ALLOW,
-            COREWEBVIEW2_PERMISSION_STATE_DENY,
+            COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS, COREWEBVIEW2_PERMISSION_STATE,
+            COREWEBVIEW2_PERMISSION_STATE_ALLOW, COREWEBVIEW2_PERMISSION_STATE_DENY,
         },
-        PermissionRequestedEventHandler,
+        PermissionRequestedEventHandler, SetPermissionStateCompletedHandler,
     };
     use whatsapp_lite::{
         classify_navigation, load_settings, save_settings, CloseBehavior, NavigationAction,
         Settings,
     };
+    use windows_core::{Interface, HSTRING, PCWSTR};
 
     const MAIN: &str = "main";
     const OPEN: &str = "open";
@@ -59,6 +61,72 @@ mod windows_app {
                 eprintln!("failed to save settings: {error}");
             }
         };
+    }
+
+    unsafe fn set_profile_permission(
+        core: &ICoreWebView2,
+        kind: COREWEBVIEW2_PERMISSION_KIND,
+        allowed: bool,
+    ) -> windows_core::Result<()> {
+        let core13: ICoreWebView2_13 = core.cast()?;
+        let profile: ICoreWebView2Profile4 = core13.Profile()?.cast()?;
+        let origin = HSTRING::from("https://web.whatsapp.com");
+        let state: COREWEBVIEW2_PERMISSION_STATE = if allowed {
+            COREWEBVIEW2_PERMISSION_STATE_ALLOW
+        } else {
+            COREWEBVIEW2_PERMISSION_STATE_DENY
+        };
+        let handler = SetPermissionStateCompletedHandler::create(Box::new(|result| {
+            if let Err(error) = result {
+                eprintln!("failed to persist WebView2 permission: {error}");
+            }
+            Ok(())
+        }));
+        profile.SetPermissionState(kind, PCWSTR(origin.as_ptr()), state, &handler)
+    }
+
+    fn sync_permissions(app: &AppHandle) {
+        let settings = {
+            let state = app.state::<State>();
+            let Ok(settings) = state.settings.lock() else {
+                return;
+            };
+            settings.clone()
+        };
+        if let Some(window) = app.get_webview_window(MAIN) {
+            let result = window.with_webview(move |webview| unsafe {
+                let Ok(core) = webview.controller().CoreWebView2() else {
+                    eprintln!("failed to access WebView2 permissions");
+                    return;
+                };
+                for (kind, allowed) in [
+                    (
+                        COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS,
+                        settings.allow_notifications,
+                    ),
+                    (COREWEBVIEW2_PERMISSION_KIND_CAMERA, settings.allow_camera),
+                    (
+                        COREWEBVIEW2_PERMISSION_KIND_MICROPHONE,
+                        settings.allow_microphone,
+                    ),
+                ] {
+                    if let Err(error) = set_profile_permission(&core, kind, allowed) {
+                        eprintln!("failed to set WebView2 permission: {error}");
+                    }
+                }
+            });
+            if let Err(error) = result {
+                eprintln!("failed to sync WebView2 permissions: {error}");
+            }
+        }
+    }
+
+    fn toggle_permission(app: &AppHandle, change: impl FnOnce(&mut Settings)) {
+        update_settings(app, change);
+        sync_permissions(app);
+        if let Some(window) = app.get_webview_window(MAIN) {
+            let _ = window.reload();
+        }
     }
 
     pub fn run() {
@@ -147,13 +215,13 @@ mod windows_app {
                                 update_settings(app, |settings| settings.autostart = !enabled);
                             }
                         }
-                        NOTIFICATIONS => update_settings(app, |settings| {
+                        NOTIFICATIONS => toggle_permission(app, |settings| {
                             settings.allow_notifications = !settings.allow_notifications;
                         }),
-                        CAMERA => update_settings(app, |settings| {
+                        CAMERA => toggle_permission(app, |settings| {
                             settings.allow_camera = !settings.allow_camera;
                         }),
-                        MICROPHONE => update_settings(app, |settings| {
+                        MICROPHONE => toggle_permission(app, |settings| {
                             settings.allow_microphone = !settings.allow_microphone;
                         }),
                         QUIT => app.exit(0),
@@ -262,6 +330,7 @@ mod windows_app {
                         eprintln!("failed to configure WebView2 permissions: {error}");
                     }
                 })?;
+                sync_permissions(app.handle());
 
                 let close_app = app.handle().clone();
                 window.on_window_event(move |event| {
