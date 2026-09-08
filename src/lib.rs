@@ -76,6 +76,19 @@ pub fn classify_navigation(raw: &str) -> NavigationAction {
     }
 }
 
+pub fn release_version_is_newer(release: &str, current: &str) -> bool {
+    fn parse(version: &str) -> Option<Vec<u64>> {
+        version
+            .trim_start_matches('v')
+            .split('.')
+            .map(str::parse)
+            .collect::<Result<Vec<_>, _>>()
+            .ok()
+    }
+
+    matches!((parse(release), parse(current)), (Some(release), Some(current)) if release > current)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,6 +126,15 @@ mod tests {
         std::fs::write(&path, b"not json").unwrap();
         assert_eq!(load_settings(&path), Settings::default());
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn compares_github_release_versions() {
+        assert!(release_version_is_newer("v0.2.0", "0.1.9"));
+        assert!(release_version_is_newer("1.0.0", "0.9.9"));
+        assert!(!release_version_is_newer("v0.1.0", "0.1.0"));
+        assert!(!release_version_is_newer("v0.0.9", "0.1.0"));
+        assert!(!release_version_is_newer("nightly", "0.1.0"));
     }
 
     #[test]
