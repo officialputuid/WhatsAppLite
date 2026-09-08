@@ -12,9 +12,8 @@ permissions:
 
 jobs:
   build:
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
     runs-on: windows-latest
-    permissions:
-      contents: ${{ startsWith(github.ref, 'refs/tags/v') && 'write' || 'read' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
@@ -24,8 +23,24 @@ jobs:
       - run: cargo fmt --check
       - run: cargo test --all-targets
       - run: cargo clippy --all-targets -- -D warnings
+      - name: Build workflow artifact
+        uses: tauri-apps/tauri-action@944946e3e4cac6603d1fe8f514171e9ecd3c78aa # v1
+        with:
+          uploadWorkflowArtifacts: true
+          workflowArtifactNamePattern: whatsapp-lite-windows-[bundle]
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
       - name: Verify release tag matches app version
-        if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
           $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
@@ -33,14 +48,10 @@ jobs:
           if ("v$version" -ne "${{ github.ref_name }}") {
             throw "Tag ${{ github.ref_name }} does not match app version v$version"
           }
-      - name: Build workflow artifact
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        uses: tauri-apps/tauri-action@944946e3e4cac6603d1fe8f514171e9ecd3c78aa # v1
-        with:
-          uploadWorkflowArtifacts: true
-          workflowArtifactNamePattern: whatsapp-lite-windows-[bundle]
+      - run: cargo fmt --check
+      - run: cargo test --all-targets
+      - run: cargo clippy --all-targets -- -D warnings
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: tauri-apps/tauri-action@944946e3e4cac6603d1fe8f514171e9ecd3c78aa # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
