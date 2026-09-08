@@ -17,6 +17,7 @@ mod windows_app {
     use tauri_plugin_autostart::ManagerExt;
     use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
     use webview2_com::{
+        take_pwstr,
         Microsoft::Web::WebView2::Win32::{
             ICoreWebView2, ICoreWebView2Profile4, ICoreWebView2_13, COREWEBVIEW2_PERMISSION_KIND,
             COREWEBVIEW2_PERMISSION_KIND_CAMERA, COREWEBVIEW2_PERMISSION_KIND_MICROPHONE,
@@ -26,8 +27,8 @@ mod windows_app {
         PermissionRequestedEventHandler, SetPermissionStateCompletedHandler,
     };
     use whatsapp_lite::{
-        classify_navigation, load_settings, release_version_is_newer, save_settings,
-        update_error_message, CloseBehavior, NavigationAction, Settings,
+        classify_navigation, load_settings, permission_origin_allowed, release_version_is_newer,
+        save_settings, update_error_message, CloseBehavior, NavigationAction, Settings,
     };
     use windows_core::{Interface, HSTRING, PCWSTR};
 
@@ -401,6 +402,13 @@ mod windows_app {
                             let Some(args) = args else {
                                 return Ok(());
                             };
+                            let mut uri = Default::default();
+                            args.Uri(&mut uri)?;
+                            if !permission_origin_allowed(&take_pwstr(uri)) {
+                                args.SetState(COREWEBVIEW2_PERMISSION_STATE_DENY)?;
+                                return Ok(());
+                            }
+
                             let mut kind = Default::default();
                             args.PermissionKind(&mut kind)?;
                             let settings = permission_app.state::<State>();
@@ -409,21 +417,19 @@ mod windows_app {
                             };
                             let allowed = match kind {
                                 COREWEBVIEW2_PERMISSION_KIND_NOTIFICATIONS => {
-                                    Some(settings.allow_notifications)
+                                    settings.allow_notifications
                                 }
-                                COREWEBVIEW2_PERMISSION_KIND_CAMERA => Some(settings.allow_camera),
+                                COREWEBVIEW2_PERMISSION_KIND_CAMERA => settings.allow_camera,
                                 COREWEBVIEW2_PERMISSION_KIND_MICROPHONE => {
-                                    Some(settings.allow_microphone)
+                                    settings.allow_microphone
                                 }
-                                _ => None,
+                                _ => false,
                             };
-                            if let Some(allowed) = allowed {
-                                args.SetState(if allowed {
-                                    COREWEBVIEW2_PERMISSION_STATE_ALLOW
-                                } else {
-                                    COREWEBVIEW2_PERMISSION_STATE_DENY
-                                })?;
-                            }
+                            args.SetState(if allowed {
+                                COREWEBVIEW2_PERMISSION_STATE_ALLOW
+                            } else {
+                                COREWEBVIEW2_PERMISSION_STATE_DENY
+                            })?;
                             Ok(())
                         }));
                     let mut token = 0;
