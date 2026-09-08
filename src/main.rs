@@ -51,9 +51,9 @@ mod windows_app {
     const GITHUB: &str = "github";
     const QUIT: &str = "quit";
 
-    const GITHUB_URL: &str = "https://github.com/officialputuid/WhatsappLite";
+    const GITHUB_URL: &str = "https://github.com/officialputuid/WhatsAppLite";
     const RELEASE_API: &str =
-        "https://api.github.com/repos/officialputuid/WhatsappLite/releases/latest";
+        "https://api.github.com/repos/officialputuid/WhatsAppLite/releases/latest";
     static UPDATE_CHECK_RUNNING: AtomicBool = AtomicBool::new(false);
 
     #[derive(serde::Deserialize)]
