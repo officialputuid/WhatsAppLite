@@ -9,12 +9,13 @@ fn main() {
 mod windows_app {
     use std::{path::PathBuf, sync::Mutex};
     use tauri::{
-        menu::{CheckMenuItemBuilder, MenuBuilder, SubmenuBuilder},
+        menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
         tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
         webview::{NewWindowResponse, WebviewWindowBuilder},
         AppHandle, Manager, WebviewUrl, WindowEvent,
     };
     use tauri_plugin_autostart::ManagerExt;
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
     use webview2_com::{
         Microsoft::Web::WebView2::Win32::{
             ICoreWebView2, ICoreWebView2Profile4, ICoreWebView2_13, COREWEBVIEW2_PERMISSION_KIND,
@@ -25,8 +26,8 @@ mod windows_app {
         PermissionRequestedEventHandler, SetPermissionStateCompletedHandler,
     };
     use whatsapp_lite::{
-        classify_navigation, load_settings, save_settings, CloseBehavior, NavigationAction,
-        Settings,
+        classify_navigation, load_settings, release_version_is_newer, save_settings, CloseBehavior,
+        NavigationAction, Settings,
     };
     use windows_core::{Interface, HSTRING, PCWSTR};
 
@@ -38,7 +39,19 @@ mod windows_app {
     const NOTIFICATIONS: &str = "notifications";
     const CAMERA: &str = "camera";
     const MICROPHONE: &str = "microphone";
+    const CHECK_UPDATE: &str = "check_update";
+    const GITHUB: &str = "github";
     const QUIT: &str = "quit";
+
+    const GITHUB_URL: &str = "https://github.com/officialputuid/WhatsappLite";
+    const RELEASE_API: &str =
+        "https://api.github.com/repos/officialputuid/WhatsappLite/releases/latest";
+
+    #[derive(serde::Deserialize)]
+    struct ReleaseInfo {
+        tag_name: String,
+        html_url: String,
+    }
 
     struct State {
         settings: Mutex<Settings>,
@@ -129,12 +142,70 @@ mod windows_app {
         }
     }
 
+    fn check_for_updates(app: &AppHandle) {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            let result = (|| -> Result<ReleaseInfo, String> {
+                let mut response = ureq::get(RELEASE_API)
+                    .header("Accept", "application/vnd.github+json")
+                    .header("User-Agent", "WhatsApp-Lite")
+                    .call()
+                    .map_err(|error| error.to_string())?;
+                response
+                    .body_mut()
+                    .read_json::<ReleaseInfo>()
+                    .map_err(|error| error.to_string())
+            })();
+
+            match result {
+                Ok(release)
+                    if release_version_is_newer(&release.tag_name, env!("CARGO_PKG_VERSION")) =>
+                {
+                    let download_url = release.html_url;
+                    app.dialog()
+                        .message(format!(
+                            "Version {} is available.\nInstalled: {}",
+                            release.tag_name,
+                            env!("CARGO_PKG_VERSION")
+                        ))
+                        .title("WhatsApp Lite Update")
+                        .buttons(MessageDialogButtons::OkCancelCustom(
+                            "Open Release".into(),
+                            "Later".into(),
+                        ))
+                        .show(move |open| {
+                            if open {
+                                let _ = tauri_plugin_opener::open_url(download_url, None::<&str>);
+                            }
+                        });
+                }
+                Ok(_) => {
+                    app.dialog()
+                        .message(format!(
+                            "WhatsApp Lite {} is up to date.",
+                            env!("CARGO_PKG_VERSION")
+                        ))
+                        .title("WhatsApp Lite Update")
+                        .show(|_| {});
+                }
+                Err(error) => {
+                    app.dialog()
+                        .message(format!("Update check failed.\n{error}"))
+                        .title("WhatsApp Lite Update")
+                        .kind(MessageDialogKind::Error)
+                        .show(|_| {});
+                }
+            }
+        });
+    }
+
     pub fn run() {
         tauri::Builder::default()
             .plugin(tauri_plugin_single_instance::init(|app, _, _| {
                 show_main(app)
             }))
             .plugin(tauri_plugin_autostart::Builder::new().build())
+            .plugin(tauri_plugin_dialog::init())
             .plugin(tauri_plugin_opener::init())
             .setup(|app| {
                 let settings_path = app.path().app_config_dir()?.join("settings.json");
@@ -169,6 +240,24 @@ mod windows_app {
                     .item(&camera)
                     .item(&microphone)
                     .build()?;
+                let app_name = MenuItemBuilder::new("WhatsApp Lite")
+                    .enabled(false)
+                    .build(app)?;
+                let version =
+                    MenuItemBuilder::new(format!("Version {}", env!("CARGO_PKG_VERSION")))
+                        .enabled(false)
+                        .build(app)?;
+                let developer = MenuItemBuilder::new("Developer: officialputuid")
+                    .enabled(false)
+                    .build(app)?;
+                let about = SubmenuBuilder::new(app, "About")
+                    .item(&app_name)
+                    .item(&version)
+                    .item(&developer)
+                    .separator()
+                    .text(CHECK_UPDATE, "Check for Updates")
+                    .text(GITHUB, GITHUB_URL)
+                    .build()?;
                 let menu = MenuBuilder::new(app)
                     .text(OPEN, "Open WhatsApp")
                     .text(RELOAD, "Reload")
@@ -176,6 +265,7 @@ mod windows_app {
                     .item(&permissions)
                     .item(&close_to_tray)
                     .item(&autostart)
+                    .item(&about)
                     .separator()
                     .text(QUIT, "Quit")
                     .build()?;
@@ -224,6 +314,14 @@ mod windows_app {
                         MICROPHONE => toggle_permission(app, |settings| {
                             settings.allow_microphone = !settings.allow_microphone;
                         }),
+                        CHECK_UPDATE => check_for_updates(app),
+                        GITHUB => {
+                            if let Err(error) =
+                                tauri_plugin_opener::open_url(GITHUB_URL, None::<&str>)
+                            {
+                                eprintln!("failed to open GitHub URL: {error}");
+                            }
+                        }
                         QUIT => app.exit(0),
                         _ => {}
                     })

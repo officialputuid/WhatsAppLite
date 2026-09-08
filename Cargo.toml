@@ -1,6 +1,6 @@
 [package]
 name = "whatsapp-lite"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.77.2"
 description = "Lightweight WhatsApp Web wrapper for Windows"
@@ -22,8 +22,10 @@ url = "2"
 [target.'cfg(windows)'.dependencies]
 tauri = { version = "2.11", features = ["tray-icon"] }
 tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
+ureq = { version = "3", features = ["json"] }
 webview2-com = "0.38"
 windows-core = "0.61"
 
