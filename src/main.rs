@@ -145,16 +145,19 @@ mod windows_app {
     fn check_for_updates(app: &AppHandle) {
         let app = app.clone();
         std::thread::spawn(move || {
-            let result = (|| -> Result<ReleaseInfo, String> {
+            let result = (|| -> Result<ReleaseInfo, Option<u16>> {
                 let mut response = ureq::get(RELEASE_API)
                     .header("Accept", "application/vnd.github+json")
                     .header("User-Agent", "WhatsApp-Lite")
                     .call()
-                    .map_err(|error| error.to_string())?;
+                    .map_err(|error| match error {
+                        ureq::Error::StatusCode(status) => Some(status),
+                        _ => None,
+                    })?;
                 response
                     .body_mut()
                     .read_json::<ReleaseInfo>()
-                    .map_err(|error| error.to_string())
+                    .map_err(|_| None)
             })();
 
             match result {
@@ -188,11 +191,7 @@ mod windows_app {
                         .title("WhatsApp Lite Update")
                         .show(|_| {});
                 }
-                Err(error) => {
-                    let status = match error {
-                        ureq::Error::StatusCode(status) => Some(status),
-                        _ => None,
-                    };
+                Err(status) => {
                     app.dialog()
                         .message(update_error_message(status))
                         .title("WhatsApp Lite Update")
