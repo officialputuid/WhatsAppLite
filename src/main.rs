@@ -7,7 +7,14 @@ fn main() {
 
 #[cfg(windows)]
 mod windows_app {
-    use std::{path::PathBuf, sync::Mutex};
+    use std::{
+        path::PathBuf,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Mutex,
+        },
+        time::Duration,
+    };
     use tauri::{
         menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
         tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -47,6 +54,7 @@ mod windows_app {
     const GITHUB_URL: &str = "https://github.com/officialputuid/WhatsappLite";
     const RELEASE_API: &str =
         "https://api.github.com/repos/officialputuid/WhatsappLite/releases/latest";
+    static UPDATE_CHECK_RUNNING: AtomicBool = AtomicBool::new(false);
 
     #[derive(serde::Deserialize)]
     struct ReleaseInfo {
@@ -144,12 +152,18 @@ mod windows_app {
     }
 
     fn check_for_updates(app: &AppHandle) {
+        if UPDATE_CHECK_RUNNING.swap(true, Ordering::AcqRel) {
+            return;
+        }
         let app = app.clone();
         std::thread::spawn(move || {
             let result = (|| -> Result<ReleaseInfo, Option<u16>> {
                 let mut response = ureq::get(RELEASE_API)
                     .header("Accept", "application/vnd.github+json")
                     .header("User-Agent", "WhatsApp-Lite")
+                    .config()
+                    .timeout_global(Some(Duration::from_secs(10)))
+                    .build()
                     .call()
                     .map_err(|error| match error {
                         ureq::Error::StatusCode(status) => Some(status),
@@ -160,6 +174,7 @@ mod windows_app {
                     .read_json::<ReleaseInfo>()
                     .map_err(|_| None)
             })();
+            UPDATE_CHECK_RUNNING.store(false, Ordering::Release);
 
             match result {
                 Ok(release)
